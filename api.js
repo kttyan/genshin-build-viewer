@@ -1,31 +1,31 @@
 /**
  * api.js
- * 役割：Enka.Network APIからデータを取得する
+ * 役割：Enka.Network APIからデータを取得する (CORS & キャッシュ対策済み)
  */
 
 const API_BASE_URL = 'https://enka.network/api/uid';
-// CORSエラーを回避するための中継プロキシサーバー
+// 信頼性の高いCORSプロキシを使用
 const PROXY_URL = 'https://api.allorigins.win/get?url=';
 
 export async function fetchGenshinData(uid) {
     try {
-        // 本来のアドレスをエンコードしてプロキシに渡す
-        const targetUrl = encodeURIComponent(`${API_BASE_URL}/${uid}`);
+        // キャッシュを回避するために、URLの末尾に毎回違う数字（タイムスタンプ）を付け足します
+        const targetUrl = encodeURIComponent(`${API_BASE_URL}/${uid}?t=${Date.now()}`);
+        
+        console.log("🚀 リクエスト送信中...");
         const response = await fetch(`${PROXY_URL}${targetUrl}`);
 
-        if (!response.ok) {
-            console.error(`API Error: ${response.status}`);
-            return null;
-        }
+        if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
 
-        // AllOrigins経由の場合、データは contents というキーの中に文字列として入っています
         const json = await response.json();
         
-        // 文字列として返ってきた中身をJSONオブジェクトに変換して返す
+        // プロキシから返ってきたデータの中身(contents)を取り出す
+        if (!json.contents) throw new Error("APIからの応答が空です");
+        
         return JSON.parse(json.contents);
         
     } catch (error) {
-        console.error("Network Error (CORS or API down):", error);
+        console.error("❌ API取得エラー:", error);
         return null;
     }
 }
