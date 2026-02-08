@@ -1,56 +1,71 @@
 /**
  * api.js
- * 役割：Enka.Network APIからデータを取得する (リトライ & 複数プロキシ対応版)
+ * 役割：Enka.Network APIとの安定した非同期通信の管理
  */
 
+// Enka.Networkの公式APIエンドポイント
 const API_BASE_URL = 'https://enka.network/api/uid';
 
-// 予備を含めたプロキシリスト（1つ目がダメなら次を試す）
+// 利用するCORSプロキシのリスト（1つ目が混雑している場合に備え、予備を用意）
 const PROXIES = [
-    'https://api.allorigins.win/get?url=',
-    'https://corsproxy.io/?'
+    'https://api.allorigins.win/get?url=', // 汎用プロキシ
+    'https://corsproxy.io/?'               // 予備の高速プロキシ
 ];
 
+/**
+ * 指定されたUIDのプレイヤーデータを取得する
+ * @param {string} uid - 原神のゲーム内UID
+ * @returns {Object|null} 取得したデータ。失敗時はnull。
+ */
 export async function fetchGenshinData(uid) {
-    // 成功するまで最大3回トライする
-    for (let i = 0; i < 3; i++) {
+    const MAX_RETRIES = 3; // 最大リトライ回数
+
+    for (let i = 0; i < MAX_RETRIES; i++) {
         try {
-            // キャッシュ回避用のタイムスタンプ
+            // 【キャッシュ対策】URLの末尾に現在の時刻を付与し、ブラウザが古いデータを使い回すのを防ぐ
             const targetUrl = `${API_BASE_URL}/${uid}?t=${Date.now()}`;
             
-            // ループごとに使うプロキシを変える
+            // 【プロキシ選択】ループ回数に応じて使用するプロキシを切り替える（i=0は1つ目、i=1は2つ目...）
             const proxy = PROXIES[i % PROXIES.length];
+            
+            // プロキシごとに異なるURL組み立て方式に対応
             const finalUrl = proxy.includes('allorigins') 
                 ? `${proxy}${encodeURIComponent(targetUrl)}` 
                 : `${proxy}${targetUrl}`;
 
-            console.log(`🚀 検索試行 ${i + 1}回目...`);
+            console.log(`🚀 検索試行 ${i + 1}回目... (${proxy.split('/')[2]})`);
 
-            // タイムアウト（8秒）を設定して、遅すぎる場合は諦めて次に進む
+            // 【タイムアウト設定】8秒以上かかる場合は「応答なし」と判断して中断する
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 8000);
 
+            // 通信実行
             const response = await fetch(finalUrl, { signal: controller.signal });
             clearTimeout(timeoutId);
 
-            if (!response.ok) throw new Error("HTTPエラー");
+            if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
 
-            const data = await response.json();
+            // データの解析
+            const rawData = await response.json();
             
-            // alloriginsの場合は中身を取り出す、corsproxyの場合はそのまま
-            const result = data.contents ? JSON.parse(data.contents) : data;
+            // 【プロキシごとのデータ抽出】
+            // AllOrigins経由の場合は 'contents' プロパティ内にJSON文字列が入っているため、それをパース
+            // 他のプロキシの場合は、そのままデータとして使用
+            const result = rawData.contents ? JSON.parse(rawData.contents) : rawData;
             
-            console.log("✅ 取得成功！");
+            console.log("✅ データの取得に成功しました！");
             return result;
 
         } catch (error) {
-            console.warn(`⚠️ 試行 ${i + 1}回目失敗:`, error.message);
-            // 3回目もダメだったら終了
-            if (i === 2) {
-                console.error("❌ 全てのリトライが失敗しました。");
+            // エラーが発生した場合は警告を表示し、次のリトライ（または終了）へ進む
+            console.warn(`⚠️ 試行 ${i + 1}回目が失敗しました:`, error.message);
+
+            if (i === MAX_RETRIES - 1) {
+                console.error("❌ 全てのリトライに失敗しました。ネットワーク環境やAPIの状態を確認してください。");
                 return null;
             }
-            // 次の試行まで少し待つ（0.5秒）
+
+            // 【待機】次のリトライまで0.5秒間待つ
             await new Promise(resolve => setTimeout(resolve, 500));
         }
     }
