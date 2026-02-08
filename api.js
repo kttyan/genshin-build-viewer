@@ -4,9 +4,12 @@
  */
 
 const API_BASE_URL = 'https://enka.network/api/uid';
+const PROXY_URL = 'https://api.allorigins.win/get?url=';
 
 export async function fetchGenshinData(uid) {
     try {
+        // 本来のアドレスをエンコードしてプロキシに渡す
+        const targetUrl = encodeURIComponent(`${API_BASE_URL}/${uid}`);
         // UIDを使ってAPIリクエストを送信
         const response = await fetch(`${API_BASE_URL}/${uid}`);
 
@@ -15,13 +18,15 @@ export async function fetchGenshinData(uid) {
             console.error(`API Error: ${response.status}`);
             return null;
         }
-
-        // データをJSON形式で受け取る
-        const data = await response.json();
-        return data;
+        // AllOrigins経由の場合、データは contents というキーの中に文字列として入っています
+        const json = await response.json();
+        // 文字列として返ってきた中身をJSONオブジェクトに変換して返す
+        return JSON.parse(json.contents);
+        
     } catch (error) {
         // 通信エラーなどの場合
         console.error("Network Error:", error);
         return null;
     }
+
 }
